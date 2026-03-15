@@ -10,8 +10,21 @@ import { matchesEntityType } from '../utils/helpers.js'
 
 export const tools = [
   {
+    name: 'auto_attack',
+    description: 'Continuously attack nearby mobs of a given type for a set duration. Use this for mob farm clearing (gold farms, mob farms, etc.). Respects sword cooldown, tracks dead entities, and handles brief disconnects gracefully. Returns hit count when done.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entity_type: { type: 'string', description: 'Entity type to attack (e.g. zombified_piglin, zombie, skeleton)' },
+        duration_ms: { type: 'number', description: 'How long to attack in ms (default 10000, max 60000)', default: 10000 },
+        max_distance: { type: 'number', description: 'Max attack range in blocks (default 4)', default: 4 }
+      },
+      required: ['entity_type']
+    }
+  },
+  {
     name: 'attack_entity',
-    description: 'Attack the nearest entity of a given type',
+    description: 'Attack the nearest entity of a given type (single swing). For repeated farm clearing use auto_attack instead.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -43,12 +56,67 @@ export const tools = [
 ]
 
 export function registerHandlers(mcp) {
+  mcp.handlers['auto_attack'] = (args) => mcp.autoAttack(args)
   mcp.handlers['attack_entity'] = (args) => mcp.attackEntity(args)
   mcp.handlers['use_item'] = async () => mcp.useItem()
   mcp.handlers['shoot_bow'] = (args) => mcp.shootBow(args)
 }
 
 export function registerMethods(mcp) {
+  mcp.autoAttack = async function({ entity_type, duration_ms = 10000, max_distance = 4 }) {
+    this.requireBot()
+    const bot = this.bot
+    const duration = Math.min(duration_ms, 60000)
+    const SWORD_COOLDOWN = 620  // ms — matches sword attack cooldown (0.6s base + margin)
+
+    // Track entities that die during this session to avoid attacking their corpses
+    const deadSet = new Set()
+    const onDead = (e) => {
+      deadSet.add(e.id)
+      setTimeout(() => deadSet.delete(e.id), 2000)
+    }
+    bot.on('entityDead', onDead)
+
+    let hits = 0
+    let skipped = 0
+    const startTime = Date.now()
+
+    while (Date.now() - startTime < duration) {
+      if (!this.bot) break  // Disconnected — watchdog will reconnect
+
+      const botPos = this.bot.entity.position
+      const entity = this.bot.nearestEntity(e => {
+        if (!matchesEntityType(e, entity_type)) return false
+        if (deadSet.has(e.id)) return false
+        if (e.position.distanceTo(botPos) > max_distance) return false
+        return true
+      })
+
+      if (entity) {
+        if (!this.bot.entities[entity.id] || deadSet.has(entity.id)) {
+          skipped++
+        } else {
+          try {
+            await this.bot.attack(entity)
+            hits++
+          } catch (err) {
+            // Ignore — entity may have died between check and attack
+          }
+        }
+      }
+
+      await new Promise(resolve => setTimeout(resolve, SWORD_COOLDOWN))
+    }
+
+    // Clean up listener
+    const listenerBot = this.bot || bot
+    listenerBot.removeListener('entityDead', onDead)
+
+    const elapsed = Math.floor((Date.now() - startTime) / 1000)
+    const status = this.bot ? 'connected' : 'disconnected (watchdog will reconnect)'
+    return text(`auto_attack done: ${hits} hits, ${skipped} skipped (dead), ${elapsed}s elapsed — ${status}`)
+  }
+
   mcp.attackEntity = async function({ entity_type, max_distance = 32 }) {
     this.requireBot()
 
