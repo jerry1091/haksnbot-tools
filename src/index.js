@@ -15,6 +15,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { appendFileSync } from 'node:fs'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -48,8 +49,11 @@ import * as villagersTools from './tools/villagers.js'
 import * as mountsTools from './tools/mounts.js'
 import * as economyTools from './tools/economy.js'
 import * as visionTools from './tools/vision.js'
-import * as viewerTools from './tools/viewer.js'
+import * as viewerTools from './tools/vision.js'
 import * as elytraTools from './tools/elytra.js'
+import * as executeTools from './tools/execute.js'
+import * as memoryTools from './tools/memory.js'
+import * as doorsTools from './tools/doors.js'
 
 const TRANSPORT = process.env.MCP_TRANSPORT || 'stdio'
 const MCP_PORT = parseInt(process.env.MCP_PORT || '3100', 10)
@@ -91,7 +95,10 @@ const toolModules = [
   economyTools,
   visionTools,
   viewerTools,
-  elytraTools
+  elytraTools,
+  executeTools,
+  memoryTools,
+  doorsTools
 ]
 
 class MinecraftMCP {
@@ -152,15 +159,18 @@ class MinecraftMCP {
     'close_villager_trades', 'elytra_fly_to', 'sleep', 'wake',
     'equip_item',
     // Movement tools are also physical (Body calls these)
-    'move_to', 'move_near', 'follow_player',
+    'move_to', 'move_near', 'navigate_to', 'follow_player',
     'attack_entity',
+    'execute_js',
   ])
 
   // Movement tools that set new pathfinding goals — should NOT auto-stop pathfinding
-  static MOVEMENT_TOOLS = new Set(['move_to', 'move_near', 'follow_player'])
+  static MOVEMENT_TOOLS = new Set(['move_to', 'move_near', 'navigate_to', 'follow_player'])
 
   async callTool(request) {
     const { name, arguments: args = {} } = request.params
+    appendFileSync('/tmp/haksnbot-calls.log', `${new Date().toISOString()} ${name} ${JSON.stringify(args)}
+`)
     const isPhysical = MinecraftMCP.PHYSICAL_TOOLS.has(name)
 
     // Contention: if another physical tool is already running, return busy
@@ -178,7 +188,11 @@ class MinecraftMCP {
 
       const handler = this.handlers[name]
       if (handler) {
-        return await handler(args)
+        const result = await handler(args)
+        const txt = result?.content?.[0]?.text || ''
+        appendFileSync('/tmp/haksnbot-calls.log', `  -> ${txt.slice(0, 120)}
+`)
+        return result
       }
       return { content: [{ type: 'text', text: `Error: Unknown tool: ${name}` }], isError: true }
     } catch (err) {
@@ -225,6 +239,15 @@ class MinecraftMCP {
     const transport = new StdioServerTransport()
     await server.connect(transport)
     console.error('Minecraft MCP server running (stdio)')
+
+    // Exit when stdin closes (Claude session ended / SSH disconnected)
+    process.stdin.on('close', () => {
+      console.error('[haksnbot-tools] stdin closed — exiting')
+      if (mcp.watchdogTimer) clearInterval(mcp.watchdogTimer)
+      if (mcp.reconnectTimer) clearTimeout(mcp.reconnectTimer)
+      if (mcp.bot) mcp.bot.quit('session ended')
+      process.exit(0)
+    })
 
     // Auto-connect if environment variables are set
     await this._autoConnect()
@@ -365,6 +388,9 @@ class MinecraftMCP {
     visionTools.registerMethods(this)
     viewerTools.registerMethods(this)
     elytraTools.registerMethods(this, Vec3)
+    executeTools.registerMethods(this, Vec3, Movements, goals)
+    memoryTools.registerMethods(this)
+    doorsTools.registerMethods(this, Vec3)
   }
 
   async _autoConnect() {

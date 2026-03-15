@@ -8,7 +8,7 @@ import { FOOD_ITEMS, ARMOR_SLOT_NAMES, ARMOR_TIERS, HOSTILE_MOBS } from 'haksnbo
 export const tools = [
   {
     name: 'get_status',
-    description: 'Get bot status: position, health, food, gamemode, dimension',
+    description: 'Get bot status: position, facing direction, health, food, gamemode, dimension',
     inputSchema: { type: 'object', properties: {} }
   },
   {
@@ -94,12 +94,23 @@ export function registerMethods(mcp, Vec3) {
     this.requireBot()
     const pos = this.bot.entity.position
     const pf = this.bot.pathfinder
+
+    // Mineflayer yaw convention (verified via atan2(-dx,-dz)):
+    //   0=North(-Z), π/2=West(-X), ±π=South(+Z), -π/2=East(+X)
+    //   yaw increases counterclockwise: N→NW→W→SW→S→SE→E→NE→N
+    const yaw = this.bot.entity.yaw
+    const yawDeg = Math.round(((yaw * 180 / Math.PI) % 360 + 360) % 360)
+    const dirs8 = ['N', 'NW', 'W', 'SW', 'S', 'SE', 'E', 'NE']
+    const facing = dirs8[Math.round(yawDeg / 45) % 8]
+
     const status = {
       position: {
         x: Math.floor(pos.x),
         y: Math.floor(pos.y),
         z: Math.floor(pos.z)
       },
+      facing,
+      yaw_deg: yawDeg,
       health: this.bot.health,
       food: this.bot.food,
       gameMode: this.bot.game.gameMode,
