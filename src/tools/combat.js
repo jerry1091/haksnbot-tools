@@ -49,15 +49,26 @@ export function registerHandlers(mcp) {
 }
 
 export function registerMethods(mcp) {
-  mcp.attackEntity = async function({ entity_type }) {
+  mcp.attackEntity = async function({ entity_type, max_distance = 32 }) {
     this.requireBot()
 
-    const entity = this.bot.nearestEntity(e =>
-      matchesEntityType(e, entity_type)
-    )
+    const botPos = this.bot.entity.position
+    const entity = this.bot.nearestEntity(e => {
+      if (!matchesEntityType(e, entity_type)) return false
+      if (e.position.distanceTo(botPos) > max_distance) return false
+      return true
+    })
 
     if (!entity) {
-      return error(`No ${entity_type} found nearby`)
+      return error(`No ${entity_type} found within ${max_distance} blocks`)
+    }
+
+    // Re-validate right before attack — entity may have died since scan
+    if (!this.bot.entities[entity.id]) {
+      return error(`${entity_type} despawned before attack`)
+    }
+    if (entity.health !== undefined && entity.health <= 0) {
+      return error(`${entity_type} is already dead`)
     }
 
     try {
@@ -65,7 +76,7 @@ export function registerMethods(mcp) {
       const dist = Math.floor(entity.position.distanceTo(this.bot.entity.position))
       return text(`Attacked ${entity.name || entity_type} at distance ${dist}`)
     } catch (err) {
-      return error(`Failed to attack: ${err.message}`)
+      return error(`Attack failed: ${err.message}`)
     }
   }
 
