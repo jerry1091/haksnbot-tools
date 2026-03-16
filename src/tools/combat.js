@@ -5,8 +5,7 @@
  * Mind's allowed_tools in core.py continues to exclude it.
  */
 
-import { text, error } from '../utils/helpers.js'
-import { matchesEntityType } from '../utils/helpers.js'
+import { text, error, matchesEntityType } from '../utils/helpers.js'
 
 export const tools = [
   {
@@ -69,6 +68,17 @@ export function registerMethods(mcp) {
     const duration = Math.min(duration_ms, 60000)
     const SWORD_COOLDOWN = 620  // ms — matches sword attack cooldown (0.6s base + margin)
 
+    // Auto-equip sword if not already holding one
+    const held = this.bot.heldItem
+    if (!held || !held.name.includes('sword')) {
+      const SWORD_TIERS = ['netherite_sword', 'diamond_sword', 'iron_sword', 'stone_sword', 'golden_sword', 'wooden_sword']
+      const sword = SWORD_TIERS.map(name => this.bot.inventory.items().find(i => i.name === name)).find(Boolean)
+      if (sword) {
+        await this.bot.equip(sword, 'hand')
+      }
+      // If no sword found, continue anyway — caller will deal with it
+    }
+
     // Track entities that die during this session to avoid attacking their corpses
     const deadSet = new Set()
     const onDead = (e) => {
@@ -99,7 +109,7 @@ export function registerMethods(mcp) {
           try {
             await this.bot.attack(entity)
             hits++
-          } catch (err) {
+          } catch (_err) {
             // Ignore — entity may have died between check and attack
           }
         }
