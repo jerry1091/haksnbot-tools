@@ -2,7 +2,7 @@
  * Communication tools - chat, whisper, get_chat_history, wait_for_chat
  */
 
-import { text } from '../utils/helpers.js'
+import { text, matchesEntityType } from '../utils/helpers.js'
 
 export const tools = [
   {
@@ -52,6 +52,14 @@ export const tools = [
           type: 'number',
           description: 'Max time to wait in ms (default 55000, max 58000)',
           default: 55000
+        },
+        entity_alert: {
+          type: 'object',
+          description: 'If provided, return early when nearby entity count exceeds max_count. Use when farming to avoid mob buildup.',
+          properties: {
+            entity_type: { type: 'string', description: 'Entity type to count (e.g. zombified_piglin)' },
+            max_count: { type: 'number', description: 'Trigger threshold — return when count >= this value' }
+          }
         }
       }
     }
@@ -93,7 +101,7 @@ export function registerMethods(mcp) {
     }).join('\n'))
   }
 
-  mcp.waitForChat = function({ since_timestamp = 0, timeout_ms = 55000 }) {
+  mcp.waitForChat = function({ since_timestamp = 0, timeout_ms = 55000, entity_alert = null }) {
     this.requireBot()
 
     const cappedTimeout = Math.min(timeout_ms, 58000)
@@ -117,30 +125,48 @@ export function registerMethods(mcp) {
       return Promise.resolve(formatMessages(existing))
     }
 
-    // Otherwise block until a chat event fires or timeout
     return new Promise((resolve) => {
+      let entityPoll = null
+
+      const cleanup = () => {
+        this.bot.off('chat', chatHandler)
+        clearTimeout(timer)
+        if (entityPoll) clearInterval(entityPoll)
+      }
+
       const timer = setTimeout(() => {
-        this.bot.off('chat', handler)
+        cleanup()
         resolve(text(`status: timeout\nlast_timestamp: ${since_timestamp}`))
       }, cappedTimeout)
 
-      const handler = () => {
-        // Small delay to catch burst messages sent at the same time
+      const chatHandler = () => {
         setTimeout(() => {
-          clearTimeout(timer)
-          this.bot.off('chat', handler)
           const newMsgs = this.chatLog.filter(m =>
             m.timestamp > since_timestamp && m.type === 'chat'
           )
           if (newMsgs.length > 0) {
+            cleanup()
             resolve(formatMessages(newMsgs))
-          } else {
-            resolve(text(`status: timeout\nlast_timestamp: ${since_timestamp}`))
           }
         }, 200)
       }
 
-      this.bot.on('chat', handler)
+      this.bot.on('chat', chatHandler)
+
+      // Entity threshold polling — check every 2 seconds
+      if (entity_alert && entity_alert.entity_type && entity_alert.max_count) {
+        const { entity_type, max_count } = entity_alert
+        entityPoll = setInterval(() => {
+          if (!this.bot) return
+          const count = Object.values(this.bot.entities).filter(e =>
+            matchesEntityType(e, entity_type)
+          ).length
+          if (count >= max_count) {
+            cleanup()
+            resolve(text(`status: mob_threshold\nentity_type: ${entity_type}\ncount: ${count}\nlast_timestamp: ${since_timestamp}`))
+          }
+        }, 2000)
+      }
     })
   }
 }

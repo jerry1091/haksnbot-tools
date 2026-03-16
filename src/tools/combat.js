@@ -62,6 +62,16 @@ export function registerHandlers(mcp) {
 }
 
 export function registerMethods(mcp) {
+  const SWORD_TIERS = ['netherite_sword', 'diamond_sword', 'iron_sword', 'stone_sword', 'golden_sword', 'wooden_sword']
+  const equipBestSword = async (bot) => {
+    const sword = SWORD_TIERS.map(name => bot.inventory.items().find(i => i.name === name)).find(Boolean)
+    if (sword) {
+      await bot.equip(sword, 'hand')
+      return sword.name
+    }
+    return null
+  }
+
   mcp.autoAttack = async function({ entity_type, duration_ms = 10000, max_distance = 4 }) {
     this.requireBot()
     const bot = this.bot
@@ -71,12 +81,7 @@ export function registerMethods(mcp) {
     // Auto-equip sword if not already holding one
     const held = this.bot.heldItem
     if (!held || !held.name.includes('sword')) {
-      const SWORD_TIERS = ['netherite_sword', 'diamond_sword', 'iron_sword', 'stone_sword', 'golden_sword', 'wooden_sword']
-      const sword = SWORD_TIERS.map(name => this.bot.inventory.items().find(i => i.name === name)).find(Boolean)
-      if (sword) {
-        await this.bot.equip(sword, 'hand')
-      }
-      // If no sword found, continue anyway — caller will deal with it
+      await equipBestSword(this.bot)
     }
 
     // Track entities that die during this session to avoid attacking their corpses
@@ -130,6 +135,12 @@ export function registerMethods(mcp) {
   mcp.attackEntity = async function({ entity_type, max_distance = 32 }) {
     this.requireBot()
 
+    // Auto-equip sword if not holding one
+    const heldForAttack = this.bot.heldItem
+    if (!heldForAttack || !heldForAttack.name.includes('sword')) {
+      await equipBestSword(this.bot)
+    }
+
     const botPos = this.bot.entity.position
     const entity = this.bot.nearestEntity(e => {
       if (!matchesEntityType(e, entity_type)) return false
@@ -165,8 +176,34 @@ export function registerMethods(mcp) {
       return error('Not holding any item')
     }
 
+    const isFood = !!this.bot.registry?.foodsByName?.[item.name]
+
     try {
       await this.bot.activateItem()
+
+      if (isFood) {
+        // Wait for eating to complete — health event fires when food level changes
+        const bot = this.bot
+        await new Promise((resolve) => {
+          const onHealth = () => {
+            bot.off('health', onHealth)
+            clearTimeout(fallback)
+            resolve()
+          }
+          const fallback = setTimeout(() => {
+            bot.off('health', onHealth)
+            resolve()
+          }, 2500)
+          bot.on('health', onHealth)
+        })
+
+        // Re-equip sword after eating
+        const swordName = await equipBestSword(this.bot)
+        if (swordName) {
+          return text(`Ate ${item.name} — re-equipped ${swordName}`)
+        }
+      }
+
       return text(`Used ${item.name}`)
     } catch (err) {
       return error(`Failed to use item: ${err.message}`)

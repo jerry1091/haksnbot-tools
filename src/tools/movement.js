@@ -108,6 +108,18 @@ export const tools = [
     name: 'stop',
     description: 'Stop all movement and pathfinding.',
     inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'climb_scaffolding',
+    description: 'Climb up or down a scaffolding column to a target Y height. Must already be standing at the base of the column (use navigate_to first). Holds jump to ascend or sneak to descend.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        target_y: { type: 'number', description: 'Target Y height to reach' },
+        timeout_ms: { type: 'number', description: 'Timeout in ms (default 120000)', default: 120000 }
+      },
+      required: ['target_y']
+    }
   }
 ]
 
@@ -120,6 +132,7 @@ export function registerHandlers(mcp) {
   mcp.handlers['face_direction'] = (args) => mcp.faceDirection(args)
   mcp.handlers['turn_degrees'] = (args) => mcp.turnDegrees(args)
   mcp.handlers['stop'] = () => mcp.stop()
+  mcp.handlers['climb_scaffolding'] = (args) => mcp.climbScaffolding(args)
 }
 
 // All door/gate block names to add to pathfinder's openable set.
@@ -142,6 +155,9 @@ function makeMovements(bot, mcData, Movements) {
     const block = mcData.blocksByName[name]
     if (block) movements.openable.add(block.id)
   }
+  // Add scaffolding as climbable so the pathfinder can route through scaffold columns
+  const scaffoldingBlock = mcData.blocksByName['scaffolding']
+  if (scaffoldingBlock) movements.climbables.add(scaffoldingBlock.id)
   const registered = ALL_DOOR_TYPES.filter(n => mcData.blocksByName[n]).map(n => n+":"+mcData.blocksByName[n].id)
   console.error("[makeMovements] registered:", registered.join(", "))
   return movements
@@ -282,5 +298,42 @@ export function registerMethods(mcp, Vec3, Movements, goals) {
     this.requireBot()
     this.bot.pathfinder.stop()
     return text('Stopped')
+  }
+
+  mcp.climbScaffolding = async function({ target_y, timeout_ms = 120000 }) {
+    this.requireBot()
+    const bot = this.bot
+
+    // Stop pathfinding so it doesn't fight the control state
+    bot.pathfinder.stop()
+
+    const startPos = bot.entity.position
+    const goingUp = target_y > startPos.y
+
+    // Hold jump to ascend scaffolding, sneak to descend
+    bot.setControlState('jump', goingUp)
+    bot.setControlState('sneak', !goingUp)
+
+    return new Promise((resolve) => {
+      const checkInterval = setInterval(() => {
+        const pos = bot.entity.position
+        const reached = goingUp ? pos.y >= target_y - 1 : pos.y <= target_y + 1
+        if (reached) {
+          clearInterval(checkInterval)
+          clearTimeout(timer)
+          bot.setControlState('jump', false)
+          bot.setControlState('sneak', false)
+          resolve(text(`Climbed to y=${Math.floor(pos.y)}. Position: ${Math.floor(pos.x)}, ${Math.floor(pos.y)}, ${Math.floor(pos.z)}`))
+        }
+      }, 250)
+
+      const timer = setTimeout(() => {
+        clearInterval(checkInterval)
+        bot.setControlState('jump', false)
+        bot.setControlState('sneak', false)
+        const pos = bot.entity.position
+        resolve(text(`Scaffold climb timed out after ${timeout_ms}ms — reached y=${Math.floor(pos.y)}, goal y=${target_y}. Position: ${Math.floor(pos.x)}, ${Math.floor(pos.y)}, ${Math.floor(pos.z)}`))
+      }, timeout_ms)
+    })
   }
 }
