@@ -60,6 +60,14 @@ export const tools = [
             entity_type: { type: 'string', description: 'Entity type to count (e.g. zombified_piglin)' },
             max_count: { type: 'number', description: 'Trigger threshold — return when count >= this value' }
           }
+        },
+        health_alert: {
+          type: 'object',
+          description: 'If provided, return early when health or food drops below thresholds. Use for self-preservation during combat or farming.',
+          properties: {
+            min_health: { type: 'number', description: 'Trigger if health drops below this (0-20, default 10)' },
+            min_food: { type: 'number', description: 'Trigger if food drops below this (0-20, default 14)' }
+          }
         }
       }
     }
@@ -101,7 +109,7 @@ export function registerMethods(mcp) {
     }).join('\n'))
   }
 
-  mcp.waitForChat = function({ since_timestamp = 0, timeout_ms = 55000, entity_alert = null }) {
+  mcp.waitForChat = function({ since_timestamp = 0, timeout_ms = 55000, entity_alert = null, health_alert = null }) {
     this.requireBot()
 
     const cappedTimeout = Math.min(timeout_ms, 58000)
@@ -127,11 +135,13 @@ export function registerMethods(mcp) {
 
     return new Promise((resolve) => {
       let entityPoll = null
+      let healthPoll = null
 
       const cleanup = () => {
         this.bot.off('chat', chatHandler)
         clearTimeout(timer)
         if (entityPoll) clearInterval(entityPoll)
+        if (healthPoll) clearInterval(healthPoll)
       }
 
       const timer = setTimeout(() => {
@@ -164,6 +174,21 @@ export function registerMethods(mcp) {
           if (count >= max_count) {
             cleanup()
             resolve(text(`status: mob_threshold\nentity_type: ${entity_type}\ncount: ${count}\nlast_timestamp: ${since_timestamp}`))
+          }
+        }, 2000)
+      }
+
+      // Health/food threshold polling — check every 2 seconds
+      if (health_alert) {
+        const minHealth = health_alert.min_health ?? 10
+        const minFood = health_alert.min_food ?? 14
+        healthPoll = setInterval(() => {
+          if (!this.bot) return
+          const health = this.bot.health
+          const food = this.bot.food
+          if (health < minHealth || food < minFood) {
+            cleanup()
+            resolve(text(`status: health_low\nhealth: ${Math.round(health)}\nfood: ${Math.round(food)}\nlast_timestamp: ${since_timestamp}`))
           }
         }, 2000)
       }
