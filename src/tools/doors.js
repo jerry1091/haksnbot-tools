@@ -61,22 +61,27 @@ export function registerMethods(mcp, Vec3) {
       const pos = bot.entity.position
       const stepMap = { north: [0,0,-1], south: [0,0,1], east: [1,0,0], west: [-1,0,0] }
       const [dx, , dz] = stepMap[dir]
-      for (let dist = 1; dist <= 4; dist++) {
+      // Perpendicular sweep (±1) handles bot position drift — e.g. Z=0.6 rounds to 1,
+      // missing a door at Z=0. Sweep catches it without needing explicit coords.
+      const [px, pz] = (dir === 'east' || dir === 'west') ? [0, 1] : [1, 0]
+      for (let dist = 1; dist <= 4 && !blockPos; dist++) {
         for (const yOff of [0, 1, -1]) {
-          const candidate = new Vec3(
-            Math.round(pos.x) + dx * dist,
-            Math.floor(pos.y) + yOff,
-            Math.round(pos.z) + dz * dist
-          )
-          const b = bot.blockAt(candidate)
-          if (b && DOOR_TYPES.has(b.name)) {
-            const props = b.getProperties()
-            if (props.half === 'upper') continue
-            blockPos = candidate
-            break
+          for (const pOff of [0, -1, 1]) {
+            const candidate = new Vec3(
+              Math.round(pos.x) + dx * dist + px * pOff,
+              Math.floor(pos.y) + yOff,
+              Math.round(pos.z) + dz * dist + pz * pOff
+            )
+            const b = bot.blockAt(candidate)
+            if (b && DOOR_TYPES.has(b.name)) {
+              const props = b.getProperties()
+              if (props.half === 'upper') continue
+              blockPos = candidate
+              break
+            }
           }
+          if (blockPos) break
         }
-        if (blockPos) break
       }
       if (!blockPos) {
         return error(`No door/gate found within 4 blocks to the ${dir}.`)
