@@ -53,6 +53,7 @@ export function matchesEntityType(entity, targetType) {
   const target = targetType.toLowerCase().replace(/_/g, '')
   const name = (entity.name || '').toLowerCase().replace(/_/g, '')
   const mobType = (entity.mobType || '').toLowerCase().replace(/_/g, '')
-  return name === target || mobType === target ||
-         name.includes(target) || target.includes(name)
+  // Note: intentionally no target.includes(name) — that causes false positives
+  // e.g. "pig" matching "zombifiedpiglin"
+  return name === target || mobType === target || name.includes(target)
 }

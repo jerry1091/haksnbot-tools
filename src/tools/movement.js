@@ -110,6 +110,19 @@ export const tools = [
     inputSchema: { type: 'object', properties: {} }
   },
   {
+    name: 'traverse_stairs',
+    description: 'Walk up or down a staircase in the given direction, bypassing the pathfinder which cannot route through stairs. Use navigate_to to reach the base of the stairs first, then call this tool.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        direction: { type: 'string', description: 'Direction to walk: north, south, east, or west' },
+        target_y: { type: 'number', description: 'Y coordinate at the top (ascending) or bottom (descending) of the stairs' },
+        timeout_ms: { type: 'number', description: 'Max time in ms (default 15000)', default: 15000 }
+      },
+      required: ['direction', 'target_y']
+    }
+  },
+  {
     name: 'climb_scaffolding',
     description: 'Climb up or down a scaffolding column to a target Y height. Must already be standing at the base of the column (use navigate_to first). Holds jump to ascend or sneak to descend.',
     inputSchema: {
@@ -132,6 +145,7 @@ export function registerHandlers(mcp) {
   mcp.handlers['face_direction'] = (args) => mcp.faceDirection(args)
   mcp.handlers['turn_degrees'] = (args) => mcp.turnDegrees(args)
   mcp.handlers['stop'] = () => mcp.stop()
+  mcp.handlers['traverse_stairs'] = (args) => mcp.traverseStairs(args)
   mcp.handlers['climb_scaffolding'] = (args) => mcp.climbScaffolding(args)
 }
 
@@ -298,6 +312,70 @@ export function registerMethods(mcp, Vec3, Movements, goals) {
     this.requireBot()
     this.bot.pathfinder.stop()
     return text('Stopped')
+  }
+
+  mcp.traverseStairs = async function({ direction, target_y, timeout_ms = 15000 }) {
+    this.requireBot()
+    const bot = this.bot
+    const dir = direction.toLowerCase()
+
+    const yawMap = { north: 0, west: Math.PI / 2, south: Math.PI, east: -Math.PI / 2 }
+    if (!(dir in yawMap)) {
+      return error(`Unknown direction "${direction}". Use north, south, east, or west.`)
+    }
+
+    const startY = bot.entity.position.y
+    const ascending = target_y > startY
+
+    bot.pathfinder.stop()
+    await bot.look(yawMap[dir], 0, true)
+    await new Promise(r => setTimeout(r, 100))
+
+    bot.setControlState('forward', true)
+    bot.setControlState('sprint', false)
+
+    const stopAll = () => {
+      bot.setControlState('forward', false)
+      bot.setControlState('sprint', false)
+      bot.setControlState('jump', false)
+    }
+
+    return new Promise((resolve) => {
+      let lastY = bot.entity.position.y
+      let lastYChangeTime = Date.now()
+
+      const checkInterval = setInterval(() => {
+        const pos = bot.entity.position
+        const currentY = pos.y
+
+        const reached = ascending ? currentY >= target_y - 0.6 : currentY <= target_y + 0.6
+        if (reached) {
+          clearInterval(checkInterval)
+          clearTimeout(timer)
+          stopAll()
+          resolve(text(`Traversed stairs ${dir}: Y ${startY.toFixed(1)} → ${currentY.toFixed(1)}`))
+          return
+        }
+
+        // Stuck detection — if Y hasn't changed in 1.5s, nudge with a jump
+        if (Math.abs(currentY - lastY) > 0.05) {
+          lastY = currentY
+          lastYChangeTime = Date.now()
+          bot.setControlState('jump', false)
+        } else if (Date.now() - lastYChangeTime > 1500) {
+          bot.setControlState('jump', true)
+          setTimeout(() => bot.setControlState('jump', false), 250)
+          lastYChangeTime = Date.now()
+        }
+      }, 100)
+
+      const timer = setTimeout(() => {
+        clearInterval(checkInterval)
+        stopAll()
+        const pos = bot.entity.position
+        resolve(error(`traverse_stairs timed out at Y=${pos.y.toFixed(1)}, target Y=${target_y}, direction: ${dir}`))
+      }, timeout_ms)
+    })
   }
 
   mcp.climbScaffolding = async function({ target_y, timeout_ms = 120000 }) {
