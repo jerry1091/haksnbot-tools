@@ -13,6 +13,7 @@
  */
 
 import { text, error } from '../utils/helpers.js'
+import { writeNavigateEvent } from '../telemetry.js'
 
 export const tools = [
   {
@@ -215,6 +216,13 @@ export function registerMethods(mcp, Vec3, Movements, goals) {
       ? new goals.GoalNear(x, y, z, range)
       : new goals.GoalBlock(x, y, z)
 
+    const startPos = { x: this.bot.entity.position.x, y: this.bot.entity.position.y, z: this.bot.entity.position.z }
+    const goalPos = { x, y, z }
+    const startTime = Date.now()
+    const sessionId = this.sessionId || 'unknown'
+    const dx = x - startPos.x, dy = y - startPos.y, dz = z - startPos.z
+    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz)
+
     return new Promise((resolve) => {
       const cleanup = () => {
         this.bot.removeListener('goal_reached', onReached)
@@ -225,6 +233,7 @@ export function registerMethods(mcp, Vec3, Movements, goals) {
       const onReached = () => {
         cleanup()
         const pos = this.bot.entity.position
+        writeNavigateEvent({ sessionId, startPos, goalPos, result: 'arrived', durationMs: Date.now() - startTime, distance })
         resolve(text(`Arrived at ${x}, ${y}, ${z}. Position: ${Math.floor(pos.x)}, ${Math.floor(pos.y)}, ${Math.floor(pos.z)}`))
       }
 
@@ -233,6 +242,7 @@ export function registerMethods(mcp, Vec3, Movements, goals) {
           cleanup()
           this.bot.pathfinder.stop()
           const pos = this.bot.entity.position
+          writeNavigateEvent({ sessionId, startPos, goalPos, result: 'noPath', durationMs: Date.now() - startTime, distance })
           resolve(text(`No path to ${x}, ${y}, ${z} — destination unreachable or obstructed. Stopped at ${Math.floor(pos.x)}, ${Math.floor(pos.y)}, ${Math.floor(pos.z)}`))
         }
       }
@@ -241,6 +251,7 @@ export function registerMethods(mcp, Vec3, Movements, goals) {
         cleanup()
         this.bot.pathfinder.stop()
         const pos = this.bot.entity.position
+        writeNavigateEvent({ sessionId, startPos, goalPos, result: 'timeout', durationMs: Date.now() - startTime, distance })
         resolve(text(`Navigate timed out after ${timeout_ms}ms. Stopped at ${Math.floor(pos.x)}, ${Math.floor(pos.y)}, ${Math.floor(pos.z)} — goal was ${x}, ${y}, ${z}`))
       }, timeout_ms)
 
@@ -248,8 +259,7 @@ export function registerMethods(mcp, Vec3, Movements, goals) {
       this.bot.on('path_update', onUpdate)
       this.bot.pathfinder.setGoal(goal)
 
-      const pos = this.bot.entity.position
-      console.error(`[navigateTo] blocking goal ${x},${y},${z} range=${range} timeout=${timeout_ms}ms from ${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)}`)
+      console.error(`[navigateTo] blocking goal ${x},${y},${z} range=${range} timeout=${timeout_ms}ms from ${Math.floor(startPos.x)},${Math.floor(startPos.y)},${Math.floor(startPos.z)}`)
     })
   }
 
@@ -415,3 +425,4 @@ export function registerMethods(mcp, Vec3, Movements, goals) {
     })
   }
 }
+
