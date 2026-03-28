@@ -3,8 +3,10 @@
  */
 
 import path from 'path'
+import { randomUUID } from 'node:crypto'
 import { text, json, logBotMessage } from '../utils/helpers.js'
 import { installRawPacketInterceptor } from '../utils/lenient-parser.js'
+import { initSession, endSession } from '../telemetry.js'
 
 export const tools = [
   {
@@ -117,6 +119,11 @@ export function registerMethods(mcp, mineflayer, minecraftData, pathfinder) {
         this.reconnectAttempt = 0
         this.lastDisconnectReason = null
         console.error(`Connection state: connected as ${this.bot.username}`)
+
+        // Start telemetry session
+        this.sessionId = randomUUID()
+        this.sessionStartTime = Date.now()
+        initSession(this.sessionId, this.bot.username)
 
         // Detect wrong server on initial connect (e.g. reconnect lands on Hub)
         const expectedServer = process.env.MC_EXPECTED_SERVER
@@ -253,6 +260,11 @@ export function registerMethods(mcp, mineflayer, minecraftData, pathfinder) {
         const disconnectReason = this.lastDisconnectReason || reason || 'Connection closed'
         console.error('Disconnected:', disconnectReason)
 
+        // Close telemetry session
+        endSession(this.sessionId)
+        this.sessionId = null
+        this.sessionStartTime = null
+
         // Stop Reflexes before nulling bot
         this.reflexes?.stop()
 
@@ -369,3 +381,4 @@ export function registerMethods(mcp, mineflayer, minecraftData, pathfinder) {
     return text('Not connected')
   }
 }
+
