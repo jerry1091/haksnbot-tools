@@ -6,6 +6,7 @@
  */
 
 import { text, error, matchesEntityType } from '../utils/helpers.js'
+import { writeCombatEvent } from '../telemetry.js'
 
 export const tools = [
   {
@@ -84,16 +85,22 @@ export function registerMethods(mcp) {
       await equipBestSword(this.bot)
     }
 
+    const healthBefore = this.bot.health ?? null
+    const sessionId = this.sessionId || 'unknown'
+
     // Track entities that die during this session to avoid attacking their corpses
     const deadSet = new Set()
+    let kills = 0
     const onDead = (e) => {
       deadSet.add(e.id)
+      if (matchesEntityType(e, entity_type)) kills++
       setTimeout(() => deadSet.delete(e.id), 2000)
     }
     bot.on('entityDead', onDead)
 
     let hits = 0
     let skipped = 0
+    let entityCount = 0
     const startTime = Date.now()
 
     while (Date.now() - startTime < duration) {
@@ -108,6 +115,14 @@ export function registerMethods(mcp) {
       })
 
       if (entity) {
+        // Count visible entities of this type at peak
+        const visible = Object.values(this.bot.entities).filter(e =>
+          matchesEntityType(e, entity_type) &&
+          !deadSet.has(e.id) &&
+          e.position.distanceTo(botPos) <= max_distance
+        ).length
+        if (visible > entityCount) entityCount = visible
+
         if (!this.bot.entities[entity.id] || deadSet.has(entity.id)) {
           skipped++
         } else {
@@ -127,9 +142,14 @@ export function registerMethods(mcp) {
     const listenerBot = this.bot || bot
     listenerBot.removeListener('entityDead', onDead)
 
-    const elapsed = Math.floor((Date.now() - startTime) / 1000)
+    const durationMs = Date.now() - startTime
+    const healthAfter = this.bot?.health ?? null
+
+    writeCombatEvent({ sessionId, entityCount, durationMs, kills, healthBefore, healthAfter })
+
+    const elapsed = Math.floor(durationMs / 1000)
     const status = this.bot ? 'connected' : 'disconnected (watchdog will reconnect)'
-    return text(`auto_attack done: ${hits} hits, ${skipped} skipped (dead), ${elapsed}s elapsed — ${status}`)
+    return text(`auto_attack done: ${hits} hits, ${kills} kills, ${skipped} skipped (dead), ${elapsed}s elapsed — ${status}`)
   }
 
   mcp.attackEntity = async function({ entity_type, max_distance = 32 }) {
@@ -238,3 +258,4 @@ export function registerMethods(mcp) {
     }
   }
 }
+
