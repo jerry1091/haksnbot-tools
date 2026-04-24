@@ -20,7 +20,7 @@
 # populate the heredocs below from the CW10/CW11 session notes and test on
 # Claudio_Test_World before deploying to production.
 
-set -uo pipefail
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NM="$SCRIPT_DIR/node_modules"

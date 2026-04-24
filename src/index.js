@@ -334,8 +334,8 @@ class MinecraftMCP {
       await transports[sessionId].handleRequest(req, res)
     })
 
-    app.listen(MCP_PORT, () => {
-      console.error(`[Connect] MCP HTTP server listening on port ${MCP_PORT}`)
+    app.listen(MCP_PORT, '127.0.0.1', () => {
+      console.error(`[Connect] MCP HTTP server listening on 127.0.0.1:${MCP_PORT}`)
     })
 
     // Write PID file

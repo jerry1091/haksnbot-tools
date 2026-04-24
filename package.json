@@ -9,7 +9,7 @@
     "patch-deps": "bash patch-deps.sh"
   },
   "dependencies": {
-    "haksnbot-guts": "github:haksndot/haksnbot-guts",
+    "haksnbot-guts": "github:haksndot/haksnbot-guts#dfb7042080ebe76e3eca21d7f1c9dfff8c10aa24",
     "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "better-sqlite3": "^11.0.0",
