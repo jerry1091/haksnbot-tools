@@ -5,10 +5,11 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "patch-deps": "bash patch-deps.sh"
   },
   "dependencies": {
-    "haksnbot-guts": "file:../guts",
+    "haksnbot-guts": "github:haksndot/haksnbot-guts",
     "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "better-sqlite3": "^11.0.0",

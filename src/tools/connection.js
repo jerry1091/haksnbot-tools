@@ -253,8 +253,8 @@ export function registerMethods(mcp, mineflayer, minecraftData, pathfinder) {
         const disconnectReason = this.lastDisconnectReason || reason || 'Connection closed'
         console.error('Disconnected:', disconnectReason)
 
-        // Stop Reflexes before nulling bot
-        this.reflexes?.stop()
+        // Stop Guts before nulling bot
+        this.guts?.stop()
 
         this.bot = null
         this.mcData = null
