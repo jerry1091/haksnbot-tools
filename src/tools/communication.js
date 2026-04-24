@@ -1,5 +1,13 @@
 /**
  * Communication tools - chat, whisper, get_chat_history
+ *
+ * Note: health_alert / wait_for_chat (the 2s health/food polling that resolved
+ * the LLM turn) was evaluated and deliberately omitted. Eating and fleeing are
+ * now handled entirely by haksnbot-guts running in index.js — no LLM turn is
+ * needed for survival reflexes. A last-resort fallback was considered (trigger
+ * only at health < 4) but rejected: Guts fires every 2s and its flee threshold
+ * (health ≤ 12) is conservative enough that a last-resort path adds complexity
+ * for no practical gain.
  */
 
 import { text } from '../utils/helpers.js'
