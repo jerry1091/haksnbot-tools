@@ -1,37 +1,21 @@
-FROM node:20-slim
+FROM ubuntu:noble
 
-# canvas / node-canvas-webgl native build deps + xvfb for vision
+# Install Node.js 18 from Ubuntu APT (same version/ABI as the pre-built native modules)
+# The pre-built better-sqlite3.node links against libnode109 from this package
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    python3 \
-    libcairo2-dev \
-    libpango1.0-dev \
-    libjpeg-dev \
-    libgif-dev \
-    librsvg2-dev \
-    libgl1-mesa-dev \
-    libxi-dev \
-    pkg-config \
-    xvfb \
+    nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install deps first for layer caching
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
-
-# Apply MC 1.21.2 compat patches (idempotent — safe to run even if stubs are pending)
-COPY patch-deps.sh ./
-RUN bash patch-deps.sh || true
-
-# Copy source
-COPY auth.js ./
-COPY src ./src
+# Copy the full repo including patched node_modules (no npm install — preserves 26.1.2 patches)
+# node_modules contains critical patches for MC 26.1.2 compatibility that must NOT be regenerated
+COPY . ./
 
 ENV MCP_TRANSPORT=http
 ENV MCP_PORT=3100
 
 EXPOSE 3100
 
+# restart: no — Claudio is manually launched, not an always-on service
 CMD ["node", "src/index.js"]
